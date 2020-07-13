@@ -13,12 +13,9 @@ import tkinter as tk
 from tkinter import filedialog
 from tkinter import ttk
 from tkinter import font
-
 from PIL import Image, ImageTk
 
-__author__ = "Erdogan Onal"
-__version__ = "1.0.0"
-__mail__ = "erdoganonal@windowslive.com"
+from .package_info import __version__, __author__, __mail__
 
 # pylint: disable=too-many-ancestors
 

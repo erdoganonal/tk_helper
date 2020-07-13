@@ -11,9 +11,8 @@ import string
 import tkinter as tk
 from colour import Color
 
-__version__ = "1.0.0"
-__author__ = "Erdogan Onal"
-__mail__ = "erdoganonal@windowslive.com"
+from ..package_info import __version__, __author__, __mail__
+
 
 FULL_CIRCLE_DEGREE = 360
 
