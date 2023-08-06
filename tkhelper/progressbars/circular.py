@@ -4,14 +4,12 @@ busy the screen for a while
 import abc
 import math
 import enum
-from typing import Any, Union, Iterable, Tuple, Optional, Generator, Type
+from typing import Any, Deque, Dict, List, Union, Iterable, Tuple, Optional, Generator, Type
 from collections import deque
 import string
 
 import tkinter as tk
-from colour import Color
-
-from ..package_info import __version__, __author__, __mail__
+from colour import Color  # type:ignore[import]
 
 
 FULL_CIRCLE_DEGREE = 360
@@ -20,35 +18,34 @@ FULL_CIRCLE_DEGREE = 360
 # pylint: disable=too-many-ancestors
 
 
-def _change_text(root, label: tk.Label, *p_bars, remaining_time: int = 2):
+def _change_text(
+    root: tk.Misc,
+    label: tk.Label,
+    *p_bars: "CircularLoadingBarBase",
+    remaining_time: int = 2,
+) -> None:
     """helper function for docstrings"""
     for p_bar in p_bars:
         if not p_bar.is_active:
             p_bar.start()
-    label.config(
-        text="Bar will be stopped in {0} seconds".format(remaining_time)
-    )
+    label.config(text=f"Bar will be stopped in {remaining_time} seconds")
     if remaining_time <= 0:
         for p_bar in p_bars:
             p_bar.stop()
-        label.config(
-            text="The window will be destroyed in a second"
-        )
+        label.config(text="The window will be destroyed in a second")
         root.after(1000, root.destroy)
     else:
-        root.after(1000, lambda: _change_text(
-            root, label, *p_bars, remaining_time=remaining_time - 1
-        ))
+        root.after(
+            1000,
+            lambda: _change_text(root, label, *p_bars, remaining_time=remaining_time - 1),
+        )
 
 
 class InconsistentLengths(Exception):
     """Raise when MaskItem lengths are not match"""
 
     def __init__(self, expected_length: int, actual_length: int):
-        super().__init__(
-            "Expected length of {0}, got {1}"
-            "".format(expected_length, actual_length)
-        )
+        super().__init__(f"Expected length of {expected_length}, got {actual_length}")
 
 
 class _EnumBase(enum.Enum):
@@ -61,79 +58,70 @@ class _EnumBase(enum.Enum):
                     return
             except TypeError:
                 pass
-        values = [repr(item) for item in cls.__dict__['_member_map_'].values()]
+        values = [repr(item) for item in cls.__dict__["_member_map_"].values()]
 
-        other_value = ''
+        other_value = ""
         if len(values) > 1:
             values, other_value = values[:-1], values[-1]
-            other_value = ' or {0}'.format(other_value)
-        raise ValueError(
-            "bad value \"{0!r}\": expected {1}{2}"
-            "".format(value, ', '.join(values), other_value)
-        )
+            other_value = f" or {other_value}"
+        raise ValueError(f'bad value "{value!r}": expected {", ".join(values)}{other_value}')
 
 
 class ResizeActions(_EnumBase):
     """Actions for resize"""
 
-    ADD = 'add'
-    SET = 'set'
-    SUB = 'subtract'
+    ADD = "add"
+    SET = "set"
+    SUB = "subtract"
 
 
 class AngleType(_EnumBase):
     """Angle types"""
 
-    DEGREE = 'degree'
-    RADIAN = 'radian'
+    DEGREE = "degree"
+    RADIAN = "radian"
 
 
 class Converter:
     """Math calculations between circles"""
 
     @staticmethod
-    def centered_circle_to_circle(center_x, center_y, radius):
+    def centered_circle_to_circle(center_x: int, center_y: int, radius: float) -> Tuple[int, int, float]:
         """Converts centered_circle to circle"""
-        return center_x - radius, center_y - radius, radius
+        return int(center_x - radius), int(center_y - radius), radius
 
     @classmethod
-    def centered_circle_to_oval(cls, center_x, center_y, radius):
+    def centered_circle_to_oval(cls, center_x: int, center_y: int, radius: float) -> Tuple[int, int, int, int]:
         """Converts centered circle to oval"""
-        return cls.circle_to_oval(
-            *cls.centered_circle_to_circle(center_x, center_y, radius)
-        )
+        return cls.circle_to_oval(*cls.centered_circle_to_circle(center_x, center_y, radius))
 
     @staticmethod
-    def circle_to_oval(start_x, start_y, radius):
+    def circle_to_oval(start_x: int, start_y: int, radius: float) -> Tuple[int, int, int, int]:
         """Converts circle to oval"""
-        diameter = 2 * radius
+        diameter = int(2 * radius)
         end_x = start_x + diameter
         end_y = start_y + diameter
         return start_x, start_y, end_x, end_y
 
     @staticmethod
-    def oval_to_circle(start_x, start_y, end_x, end_y):
+    def oval_to_circle(start_x: int, start_y: int, end_x: int, end_y: int) -> Tuple[int, int, float]:
         """Converts oval to circle"""
         assert end_x == end_y, "Oval must be circle"
         return start_x, start_y, (end_x - start_x) / 2
 
     @staticmethod
-    def circle_to_centered_circle(start_x, start_y, radius):
+    def circle_to_centered_circle(start_x: int, start_y: int, radius: float) -> Tuple[int, int, float]:
         """Converts circle to centered circle"""
-        return start_x + radius, start_y + radius, radius
+        return int(start_x + radius), int(start_y + radius), radius
 
     @classmethod
-    def oval_to_centered_circle(cls, start_x, start_y, end_x, end_y):
+    def oval_to_centered_circle(cls, start_x: int, start_y: int, end_x: int, end_y: int) -> Tuple[int, int, float]:
         """Converts oval to centered circle"""
-        return cls.circle_to_centered_circle(
-            *cls.oval_to_circle(start_x, start_y, end_x, end_y)
-        )
+        return cls.circle_to_centered_circle(*cls.oval_to_circle(start_x, start_y, end_x, end_y))
 
 
 _MaskItemTest = type("_MaskItemTest", (), {})
-_MaskItemTest.test_method = staticmethod(
-    lambda test_param: print(test_param.copy())
-)
+_MaskItemTest.test_method = staticmethod(lambda test_param: print(test_param.copy()))  # type: ignore[attr-defined]
 
 
 class MaskItem:
@@ -153,9 +141,9 @@ class MaskItem:
         deque([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
     """
 
-    def __init__(self, method_name: str, **kwargs: Iterable):
+    def __init__(self, method_name: str, **kwargs: Any):
         self._method_name = method_name
-        self._kwargs = {}
+        self._kwargs: Dict[str, Deque[Any]] = {}
 
         length = None
         for key, value in kwargs.items():
@@ -173,26 +161,26 @@ class MaskItem:
 
     def rotate(self, rotate_by: int = 1) -> None:
         """Shift entire mask items by one"""
-        for key in self._kwargs:
-            self._kwargs[key].rotate(rotate_by)
+        for value in self._kwargs.values():
+            value.rotate(rotate_by)
 
     def __len__(self) -> int:
         for value in self._kwargs.values():
             return len(value)
         return 0
 
-    def __iter__(self) -> Tuple[str, Any]:
+    def __iter__(self) -> Generator[Tuple[str, Any], None, None]:
         for key, value in self._kwargs.items():
             yield key, value
 
     def __str__(self) -> str:
-        string_result = "Method name: {0}\n".format(self.name)
+        string_result = f"Method name: {self.name}\n"
         for param, value in self._kwargs.items():
-            string_result += "\t{0}: {1}\n".format(param, value)
+            string_result += f"\t{param}: {value}\n"
         return string_result
 
 
-class Mask(list):
+class Mask(list[MaskItem]):
     """
     A list that includes masks.
         Args:
@@ -218,7 +206,7 @@ class Mask(list):
         for mask_item in self:
             mask_item.rotate(rotate_by)
 
-    def __len__(self) -> None:
+    def __len__(self) -> int:
         length = None
         for mask_item in self:
             if length is None:
@@ -249,15 +237,19 @@ CircularLoadingBarBase with abstract methods items, update_bar
     """
 
     def __init__(
-            self, *args, mask: Mask,
-            size: Optional[int] = None,
-            shift: int = 0, **kwargs):
+        self,
+        *args: Any,
+        mask: Mask,
+        size: Optional[int] = None,
+        shift: int = 0,
+        **kwargs: Any,
+    ) -> None:
         if size is not None:
-            kwargs['width'] = kwargs['height'] = size
+            kwargs["width"] = kwargs["height"] = size
         super().__init__(*args, **kwargs)
 
         self.shift = shift
-        self._is_active = None
+        self._is_active = False
         self.mask = mask
 
     @property
@@ -271,14 +263,11 @@ CircularLoadingBarBase with abstract methods items, update_bar
         if isinstance(mask, Mask):
             self._mask = mask
         else:
-            raise ValueError(
-                "mask should be instance of"
-                "{0!r}".format(Mask)
-            )
+            raise ValueError(f"mask should be instance of {Mask!r}")
 
     @property
     @abc.abstractmethod
-    def items(self):
+    def items(self) -> List[int]:
         """Returns the items that the mask will be applied to."""
 
     @staticmethod
@@ -319,13 +308,11 @@ CircularLoadingBarBase with abstract methods items, update_bar
         >>> CircularLoadingBarBase.to_float(math.cos(math.pi/2))
         0.0
         """
-        precision = 10 ** precision
+        precision = 10**precision
         return int(num * precision) / precision
 
     @classmethod
-    def polar_to_cartesian(
-            cls, radius: float, angle: float,
-            kind: AngleType = AngleType.DEGREE) -> Tuple[float, float]:
+    def polar_to_cartesian(cls, radius: float, angle: float, kind: AngleType = AngleType.DEGREE) -> Tuple[float, float]:
         """Calculates the cartesian coordinates from polar coordinates.
         Args:
             radius: The radius of the polar coordinates
@@ -369,7 +356,7 @@ CircularLoadingBarBase with abstract methods items, update_bar
         return self._is_active
 
     @property
-    def size(self) -> int:
+    def fit_size(self) -> int:
         """return the size to fit the widget"""
         return min(self.winfo_width(), self.winfo_height())
 
@@ -397,48 +384,36 @@ CircularLoadingBarBase with abstract methods items, update_bar
         """stop the bar"""
         self._is_active = False
 
-    def create_centered_circle(
-            self, center_x: float, center_y: float,
-            radius: float, **kwargs) -> int:
+    def create_centered_circle(self, center_x: int, center_y: int, radius: float, **kwargs: Any) -> int:
         """Create a circle with given radius and coordinates
-            that pointing the center of the circle
+        that pointing the center of the circle
 
-            Args:
-                center_x: x coordinate of the circle in cartesian system
-                center_y: y coordinate of the circle in cartesian system
-                radius:   Radius of the circle
-            Returns:
-                id of the created circle
+        Args:
+            center_x: x coordinate of the circle in cartesian system
+            center_y: y coordinate of the circle in cartesian system
+            radius:   Radius of the circle
+        Returns:
+            id of the created circle
         """
-        return self.create_oval(
-            Converter.centered_circle_to_oval(
-                center_x, center_y, radius
-            ), **kwargs
-        )
+        return self.create_oval(Converter.centered_circle_to_oval(center_x, center_y, radius), **kwargs)
 
-    def create_circle(self, start_x: float, start_y: float, radius: float, **kwargs) -> int:
+    def create_circle(self, start_x: int, start_y: int, radius: float, **kwargs: Any) -> int:
         """Create a circle with given radius and place to given coordinates
-            Args:
-                start_x: x origin point of the square which includes the circle
-                start_y: y origin point of the square which includes the circle
-                radius:  Radius of the circle
-            Returns:
-                id of the created circle
+        Args:
+            start_x: x origin point of the square which includes the circle
+            start_y: y origin point of the square which includes the circle
+            radius:  Radius of the circle
+        Returns:
+            id of the created circle
         """
-        return self.create_oval(
-            Converter.circle_to_oval(
-                start_x, start_y, radius
-            ), **kwargs
-        )
+        return self.create_oval(Converter.circle_to_oval(start_x, start_y, radius), **kwargs)
 
-    def resize(
-            self, item_id: int, radius: float,
-            action: ResizeActions = ResizeActions.SET) -> None:
+    def resize(self, item_id: int, radius: float, action: ResizeActions = ResizeActions.SET) -> None:
         """Resize given circle. New radius will be applied based on the action
-            Args:
-                item_id: Id of the circle
-                radius:  New value to apply on the radius
-                action:  The action to apply on the old radius
+        Args:
+            item_id: Id of the circle
+            radius:  New value to apply on the radius
+            action:  The action to apply on the old radius
         """
         start_x, start_y, end_x, end_y = self.coords(item_id)
 
@@ -459,7 +434,7 @@ CircularLoadingBarBase with abstract methods items, update_bar
 
         self.coords(item_id, start_x, start_y, end_x, end_y)
 
-    def __del__(self):
+    def __del__(self) -> None:
         try:
             self.stop()
         except AttributeError:
@@ -469,25 +444,25 @@ CircularLoadingBarBase with abstract methods items, update_bar
 class SpinningCirclesLoadingBarBase(CircularLoadingBarBase):
     """Creates an circular loading bar which consisting circles
 
-        Args:
-            *args
-            **kwargs: Parameters for SpinningCirclesLoadingBarBase module
-            mask:     The list will be applied and rotated every loop.
-            offset:   The offset value to avoid inner circle overflow.
+    Args:
+        *args
+        **kwargs: Parameters for SpinningCirclesLoadingBarBase module
+        mask:     The list will be applied and rotated every loop.
+        offset:   The offset value to avoid inner circle overflow.
     """
 
-    def __init__(self, *args, offset: Optional[Iterable] = None, **kwargs):
+    def __init__(self, *args: Any, offset: Optional[int] = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.circles = []
+        self.circles: List[int] = []
         self.offset = offset
 
     @property
-    def items(self):
+    def items(self) -> List[int]:
         return self.circles
 
     def update_bar(self) -> None:
-        width = self.size / 2
+        width = self.fit_size / 2
         radius = width / 8
         offset = self.offset or 20
 
@@ -496,12 +471,14 @@ class SpinningCirclesLoadingBarBase(CircularLoadingBarBase):
         self.circles = []
 
         for angle in self.get_sequence(0, FULL_CIRCLE_DEGREE, len(self.mask)):
-            coordinate_x, coordinate_y = self.polar_to_cartesian(
-                width - radius - offset, angle)
-            self.circles.append(self.create_centered_circle(
-                coordinate_x + self.shift + radius + offset, coordinate_y +
-                self.shift + radius + offset, radius
-            ))
+            coordinate_x, coordinate_y = self.polar_to_cartesian(width - radius - offset, angle)
+            self.circles.append(
+                self.create_centered_circle(
+                    int(coordinate_x + self.shift + radius + offset),
+                    int(coordinate_y + self.shift + radius + offset),
+                    radius,
+                )
+            )
 
 
 class SpinnerLoadingBar(SpinningCirclesLoadingBarBase):
@@ -524,22 +501,37 @@ class SpinnerLoadingBar(SpinningCirclesLoadingBarBase):
         >>> root.mainloop()
     """
 
-    GRAYED = (
-        "#fafafa", "#f5f5f5", "#e0e0e0", "#bdbdbd",
-        "#9e9e9e", "#757575", "#616161", "#424242"
+    GRAYED: Tuple[str, str, str, str, str, str, str, str] = (
+        "#fafafa",
+        "#f5f5f5",
+        "#e0e0e0",
+        "#bdbdbd",
+        "#9e9e9e",
+        "#757575",
+        "#616161",
+        "#424242",
     )
-    RAINBOW = (
-        "#fff100", "#ff8c00", "#e81123", "#4b0082",
-        "#000080", "#00188f", "#00b294", "#bad80a"
+    RAINBOW: Tuple[str, str, str, str, str, str, str, str] = (
+        "#fff100",
+        "#ff8c00",
+        "#e81123",
+        "#4b0082",
+        "#000080",
+        "#00188f",
+        "#00b294",
+        "#bad80a",
     )
 
-    def __init__(self, *args, colors=None, **kwargs):
+    def __init__(
+        self,
+        *args: Any,
+        colors: Optional[Tuple[str, str, str, str, str, str, str, str]] = None,
+        **kwargs: Any,
+    ) -> None:
         if colors is None:
             colors = self.RAINBOW
 
-        kwargs['mask'] = kwargs.get('mask', Mask(
-            MaskItem('itemconfig', fill=colors)
-        ))
+        kwargs["mask"] = kwargs.get("mask", Mask(MaskItem("itemconfig", fill=colors)))
 
         super().__init__(*args, **kwargs)
 
@@ -562,49 +554,53 @@ class SpinnerSizedLoadingBar(SpinningCirclesLoadingBarBase):
         >>> root.mainloop()
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         min_radius = 5
         circles = 8
         resize_mask = range(min_radius, min_radius + circles)
         default_mask = Mask(
-            MaskItem('resize', radius=resize_mask),
-            MaskItem('itemconfig', fill=['black'] * len(resize_mask))
+            MaskItem("resize", radius=resize_mask),
+            MaskItem("itemconfig", fill=["black"] * len(resize_mask)),
         )
 
-        kwargs['mask'] = kwargs.get('mask', default_mask)
+        kwargs["mask"] = kwargs.get("mask", default_mask)
         super().__init__(*args, **kwargs)
 
 
 class CircleLoadingBar(CircularLoadingBarBase):
     """Creates a loading bar with color range
 
-        >>> root = tk.Tk()
-        >>> root.title("CircleLoadingBar")
-        ''
-        >>> label = tk.Label()
-        >>> label.grid()
-        >>> bar = CircleLoadingBar(
-        ...     root, size=200, symmetric=True,
-        ...     color1='blue', color2='red'
-        ... )
-        >>> bar.grid()
-        >>> bar.start(interval_ms=8)
-        >>> _change_text(root, label, bar)
-        >>> root.mainloop()
+    >>> root = tk.Tk()
+    >>> root.title("CircleLoadingBar")
+    ''
+    >>> label = tk.Label()
+    >>> label.grid()
+    >>> bar = CircleLoadingBar(
+    ...     root, size=200, symmetric=True,
+    ...     color1='blue', color2='red'
+    ... )
+    >>> bar.grid()
+    >>> bar.start(interval_ms=8)
+    >>> _change_text(root, label, bar)
+    >>> root.mainloop()
     """
+
     DTF_COLOR1 = "#0091c7"
     DTF_COLOR2 = "red"
 
     def __init__(
-            self, *args, width: int = 10,
-            color1: Optional[str] = None, color2: Optional[str] = None,
-            steps: int = 180, color_range: Optional[Iterable] = None,
-            symmetric=True, **kwargs):
+        self,
+        *args: Any,
+        width: int = 10,
+        color1: Optional[str] = None,
+        color2: Optional[str] = None,
+        steps: int = 180,
+        color_range: Optional[Iterable[str]] = None,
+        symmetric: bool = True,
+        **kwargs: Any,
+    ) -> None:
         if color_range and (color1 or color2):
-            raise ValueError(
-                "You are not allowed to pass color_range "
-                "and colors at the same time"
-            )
+            raise ValueError("You are not allowed to pass color_range and colors at the same time")
 
         if color1 is None:
             color1 = self.DTF_COLOR1
@@ -612,29 +608,32 @@ class CircleLoadingBar(CircularLoadingBarBase):
         if color2 is None:
             color2 = self.DTF_COLOR2
 
-        self.arcs = []
+        self.arcs: List[int] = []
         if color_range is None:
             if symmetric:
                 colors = list(self.get_range(color1, color2, int(steps / 2)))
                 color_range = colors + colors[-2::-1]
             else:
                 color_range = self.get_range(color1, color2, steps)
-        kwargs['mask'] = Mask(
-            MaskItem('itemconfig', outline=color_range,),
-            rotate_by=-1
+        kwargs["mask"] = Mask(
+            MaskItem(
+                "itemconfig",
+                outline=color_range,
+            ),
+            rotate_by=-1,
         )
 
         self.width = width
-        self.oval1_id = None
-        self.oval2_id = None
+        self.oval1_id = 0
+        self.oval2_id = 0
 
         super().__init__(*args, **kwargs)
 
     @property
-    def items(self):
+    def items(self) -> List[int]:
         return self.arcs
 
-    def update_bar(self):
+    def update_bar(self) -> None:
         outer_circle_offset = self.width
         inner_circle_offset = self.width * 2
         if self.oval1_id:
@@ -645,32 +644,35 @@ class CircleLoadingBar(CircularLoadingBarBase):
         self.oval1_id = self.create_oval(
             outer_circle_offset - self.width / 2,
             outer_circle_offset - self.width / 2,
-            self.size - outer_circle_offset + self.width / 2,
-            self.size - outer_circle_offset + self.width / 2
+            self.fit_size - outer_circle_offset + self.width / 2,
+            self.fit_size - outer_circle_offset + self.width / 2,
         )
 
         self.oval2_id = self.create_oval(
-            inner_circle_offset - self.width / 2, inner_circle_offset - self.width / 2,
-            self.size - inner_circle_offset + self.width /
-            2, self.size - inner_circle_offset + self.width / 2,
+            inner_circle_offset - self.width / 2,
+            inner_circle_offset - self.width / 2,
+            self.fit_size - inner_circle_offset + self.width / 2,
+            self.fit_size - inner_circle_offset + self.width / 2,
         )
 
         self._create_loading_arc(
-            outer_circle_offset, outer_circle_offset,
-            self.size - outer_circle_offset, self.size - outer_circle_offset,
-            width=self.width
+            outer_circle_offset,
+            outer_circle_offset,
+            self.fit_size - outer_circle_offset,
+            self.fit_size - outer_circle_offset,
+            width=self.width,
         )
 
     @staticmethod
-    def get_range(color1: str, color2: str, steps: int) -> Generator:
+    def get_range(color1: str, color2: str, steps: int) -> Generator[str, None, None]:
         """range of color"""
         for color in Color(color1).range_to(color2, steps):
             yield color.get_hex()
 
-    def _create_loading_arc(self, *bbox, width: float, **kwargs) -> None:
+    def _create_loading_arc(self, *bbox: int, width: float, **kwargs: Any) -> None:
         color_range = len(self._mask)
 
-        start = 0
+        start = 0.0
         extent = FULL_CIRCLE_DEGREE / color_range
 
         for arc_id in self.arcs:
@@ -681,9 +683,11 @@ class CircleLoadingBar(CircularLoadingBarBase):
             self.arcs.append(
                 self.create_arc(
                     *bbox,
-                    start=start, width=width,
-                    extent=extent, style='arc',
-                    **kwargs
+                    start=start,
+                    width=width,
+                    extent=extent,
+                    style="arc",
+                    **kwargs,
                 )
             )
             start += extent
@@ -691,113 +695,108 @@ class CircleLoadingBar(CircularLoadingBarBase):
 
 class TransparentSpinnerBar:
     """
-        Places a transparent loading bar
+    Places a transparent loading bar
 
-        Args:
-            root[tk.Widget]: A widget to place the loading bar top of it
-            kind[CircularLoadingBarBase]: Type of the loading bar. Should be
-                                        instance of CircularLoadingBarBase.
-            location[
-                Location        : The Location enumeration. Places the loading bar given place.
-                Tuple[int, int] : x and y coordinates. Places the loading bar given place.
-            ]: Optional. Location of the loading bar. Could be Location or Tuple.
-            kwargs: Keyword arguments for the loading bar.
+    Args:
+        root[tk.Widget]: A widget to place the loading bar top of it
+        kind[CircularLoadingBarBase]: Type of the loading bar. Should be
+                                    instance of CircularLoadingBarBase.
+        location[
+            Location        : The Location enumeration. Places the loading bar given place.
+            Tuple[int, int] : x and y coordinates. Places the loading bar given place.
+        ]: Optional. Location of the loading bar. Could be Location or Tuple.
+        kwargs: Keyword arguments for the loading bar.
 
-        >>> root = tk.Tk()
-        >>> root.title("TransparentSpinnerBar")
-        ''
-        >>> label = tk.Label()
-        >>> label.grid()
-        >>> text = tk.Text(root)
-        >>> text.insert("1.0", string.ascii_letters * 50)
-        >>> text.grid()
-        >>> bar = TransparentSpinnerBar(text, kind=SpinnerSizedLoadingBar)
-        >>> _change_text(root, label, bar)
-        >>> root.mainloop()
+    >>> root = tk.Tk()
+    >>> root.title("TransparentSpinnerBar")
+    ''
+    >>> label = tk.Label()
+    >>> label.grid()
+    >>> text = tk.Text(root)
+    >>> text.insert("1.0", string.ascii_letters * 50)
+    >>> text.grid()
+    >>> bar = TransparentSpinnerBar(text, kind=SpinnerSizedLoadingBar)
+    >>> _change_text(root, label, bar)
+    >>> root.mainloop()
     """
 
-    _TRANSPARENT_COLOR = 'white'
+    _TRANSPARENT_COLOR = "white"
 
     class Location(_EnumBase):
         """An enum for positioning the transparent loading bar"""
 
-        LEFT_TOP = 'lt'
-        LEFT_CENTER = 'lc'
-        LEFT_BOTTOM = 'lb'
+        LEFT_TOP = "lt"
+        LEFT_CENTER = "lc"
+        LEFT_BOTTOM = "lb"
 
-        MIDDLE_TOP = 'mt'
-        MIDDLE_CENTER = 'mc'
-        MIDDLE_BOTTOM = 'mb'
+        MIDDLE_TOP = "mt"
+        MIDDLE_CENTER = "mc"
+        MIDDLE_BOTTOM = "mb"
 
-        RIGHT_TOP = 'rt'
-        RIGHT_CENTER = 'rc'
-        RIGHT_BOTTOM = 'rb'
+        RIGHT_TOP = "rt"
+        RIGHT_CENTER = "rc"
+        RIGHT_BOTTOM = "rb"
 
         @classmethod
-        def is_top(cls, value: Any):
+        def is_top(cls, value: Any) -> bool:
             """Returns True if given value places at the top, False otherwise"""
             return value in (cls.LEFT_TOP, cls.MIDDLE_TOP, cls.RIGHT_TOP)
 
         @classmethod
-        def is_middle(cls, value: Any):
+        def is_middle(cls, value: Any) -> bool:
             """Returns True if given value places at the middle, False otherwise"""
             return value in (cls.MIDDLE_TOP, cls.MIDDLE_CENTER, cls.MIDDLE_BOTTOM)
 
         @classmethod
-        def is_bottom(cls, value: Any):
+        def is_bottom(cls, value: Any) -> bool:
             """Returns True if given value places at the bottom, False otherwise"""
             return value in (cls.LEFT_BOTTOM, cls.MIDDLE_BOTTOM, cls.RIGHT_BOTTOM)
 
         @classmethod
-        def is_left(cls, value: Any):
+        def is_left(cls, value: Any) -> bool:
             """Returns True if given value places at the left, False otherwise"""
             return value in (cls.LEFT_TOP, cls.LEFT_CENTER, cls.LEFT_BOTTOM)
 
         @classmethod
-        def is_center(cls, value: Any):
+        def is_center(cls, value: Any) -> bool:
             """Returns True if given value places at the center, False otherwise"""
             return value in (cls.LEFT_CENTER, cls.MIDDLE_CENTER, cls.RIGHT_CENTER)
 
         @classmethod
-        def is_right(cls, value: Any):
+        def is_right(cls, value: Any) -> bool:
             """Returns True if given value places at the right, False otherwise"""
             return value in (cls.RIGHT_TOP, cls.RIGHT_CENTER, cls.RIGHT_BOTTOM)
 
     def __init__(
-            self, root: Union[tk.Widget, tk.Tk], kind: Type[CircularLoadingBarBase],
-            location: Optional[Union[Location, Tuple[int, int]]] = Location.MIDDLE_CENTER,
-            **kwargs):
+        self,
+        root: Union[tk.Widget, tk.Tk],
+        kind: Type[CircularLoadingBarBase],
+        location: Optional[Union[Location, Tuple[int, int]]] = Location.MIDDLE_CENTER,
+        **kwargs: Any,
+    ) -> None:
         self._root = root
         self.location = location
-        self._main_window = self._loading_bar = None
+        self._main_window: Optional[tk.Toplevel] = None
+        self._loading_bar: Optional[CircularLoadingBarBase] = None
         self.kind = kind
 
         # Override background color
-        kwargs['background'] = kwargs['bg'] = \
-            kwargs['highlightbackground'] = self._TRANSPARENT_COLOR
+        kwargs["background"] = kwargs["bg"] = kwargs["highlightbackground"] = self._TRANSPARENT_COLOR
         self.kwargs = kwargs
 
-        self._root.winfo_toplevel().protocol(
-            "WM_DELETE_WINDOW",
-            self._handle_destroy
-        )
+        self._root.winfo_toplevel().protocol("WM_DELETE_WINDOW", self._handle_destroy)
 
     def _init(self) -> None:
         if self.is_active:
             raise RuntimeError("The bar is already running")
 
         self._main_window = tk.Toplevel(self._root.winfo_toplevel())
-        self._loading_bar = self.kind(
-            self._main_window, **self.kwargs
-        )
+        self._loading_bar = self.kind(self._main_window, **self.kwargs)
         self._loading_bar.grid()
 
         # TODO: Check for platform dependency
         self._main_window.overrideredirect(True)  # Remove the title and border
-        self._main_window.wm_attributes(
-            "-transparentcolor",
-            self._TRANSPARENT_COLOR
-        )
+        self._main_window.wm_attributes("-transparentcolor", self._TRANSPARENT_COLOR)
 
     def _get_coordinates(self) -> Tuple[int, int]:
         """Please refer following schema for positioning"""
@@ -821,34 +820,33 @@ class TransparentSpinnerBar:
             self.Location.raise_bad_value(self.location, safe=True)
         except ValueError:
             # if exact location passed, no need to calculate
-            return self.location
+            return self.location  # type: ignore[return-value]
+
+        if self._loading_bar is None:
+            raise RuntimeError("Cannot get coordinates of uninitialized window")
 
         left_x = self._root.winfo_rootx()
-        middle_x = int(self._root.winfo_rootx() +
-                       self._root.winfo_width() / 2 - self._loading_bar.size / 2)
-        right_x = int(self._root.winfo_rootx() +
-                      self._root.winfo_width() - self._loading_bar.size)
+        middle_x = int(self._root.winfo_rootx() + self._root.winfo_width() / 2 - self._loading_bar.fit_size / 2)
+        right_x = int(self._root.winfo_rootx() + self._root.winfo_width() - self._loading_bar.fit_size)
 
         top_y = self._root.winfo_rooty()
-        center_y = int(self._root.winfo_rooty() +
-                       self._root.winfo_height() / 2 - self._loading_bar.size / 2)
-        bottom_y = int(self._root.winfo_rooty() +
-                       self._root.winfo_height() - self._loading_bar.size)
+        center_y = int(self._root.winfo_rooty() + self._root.winfo_height() / 2 - self._loading_bar.fit_size / 2)
+        bottom_y = int(self._root.winfo_rooty() + self._root.winfo_height() - self._loading_bar.fit_size)
 
-        x_coord = y_coord = None
+        x_coord = y_coord = 0
 
         if self.Location.is_left(self.location):
             x_coord = left_x
-        if self.Location.is_middle(self.location):
+        elif self.Location.is_middle(self.location):
             x_coord = middle_x
-        if self.Location.is_right(self.location):
+        elif self.Location.is_right(self.location):
             x_coord = right_x
 
         if self.Location.is_top(self.location):
             y_coord = top_y
-        if self.Location.is_center(self.location):
+        elif self.Location.is_center(self.location):
             y_coord = center_y
-        if self.Location.is_bottom(self.location):
+        elif self.Location.is_bottom(self.location):
             y_coord = bottom_y
 
         return x_coord, y_coord
@@ -859,31 +857,39 @@ class TransparentSpinnerBar:
         except tk.TclError:
             return
 
-        self._main_window.geometry('+{}+{}'.format(
-            coord_x, coord_y
-        ))
+        if self._main_window is None:
+            raise RuntimeError("Cannot locate uninitialized window")
+
+        self._main_window.geometry(f"+{coord_x}+{coord_y}")
         if self.is_active:
             self._main_window.after(1, self._locate)
 
-    def _to_top(self):
+    def _to_top(self) -> None:
+        if self._main_window is None:
+            raise RuntimeError("Cannot top uninitialized window")
+
         self._main_window.update_idletasks()
         # put the root window behind the bar
         self._main_window.lift(self._root.winfo_toplevel())
         self._main_window.after(100, self._to_top)
 
-    def _handle_destroy(self):
+    def _handle_destroy(self) -> None:
         self.stop()
-        self._main_window.destroy()
+        if self._main_window:
+            self._main_window.destroy()
         self._root.winfo_toplevel().destroy()
 
     @property
-    def is_active(self):
+    def is_active(self) -> bool:
         """return the information if bar is active or not"""
-        return self._loading_bar and self._loading_bar.is_active
+        return self._loading_bar is not None and self._loading_bar.is_active
 
-    def start(self, interval_ms: Optional[int] = None):
+    def start(self, interval_ms: Optional[int] = None) -> None:
         """start the bar"""
         self._init()
+        if self._loading_bar is None:
+            raise RuntimeError("Cannot start uninitialized bar")
+
         if interval_ms is None:
             self._loading_bar.start()
         else:
@@ -891,16 +897,20 @@ class TransparentSpinnerBar:
         self._locate()
         self._to_top()
 
-    def stop(self):
+    def stop(self) -> None:
         """stop the bar"""
-        self._loading_bar.stop()
-        self._main_window.destroy()
+        if self._loading_bar:
+            self._loading_bar.stop()
+
+        if self._main_window:
+            self._main_window.destroy()
 
 
 def test_spinner_loading_bar(root: Union[tk.Tk, tk.Widget]) -> None:
     """Render a rainbow colored circle spinner bar"""
     loading = SpinnerLoadingBar(
-        root, colors=SpinnerLoadingBar.RAINBOW,
+        root,
+        colors=SpinnerLoadingBar.RAINBOW,
     )
     loading.grid(row=0, column=0)
     loading.start()
@@ -928,7 +938,12 @@ def test_a_working_app() -> None:
     button_frame = tk.Frame(root)
     button_frame.grid()
 
-    def change_bar(kind):
+    text = tk.Text(root)
+    text.insert("1.0", string.ascii_letters * 50)
+    text.grid()
+    spinner = TransparentSpinnerBar(text, SpinnerSizedLoadingBar)
+
+    def change_bar(kind: Type[CircularLoadingBarBase]) -> None:
         nonlocal spinner
         spinner.kind = kind
 
@@ -939,31 +954,24 @@ def test_a_working_app() -> None:
             spinner.start(interval_ms=100)
 
     tk.Button(
-        button_frame, text='SpinnerLoadingBar',
-        command=lambda: change_bar(SpinnerLoadingBar)
+        button_frame,
+        text="SpinnerLoadingBar",
+        command=lambda: change_bar(SpinnerLoadingBar),
     ).grid(row=0, column=0, padx=10, pady=10)
     tk.Button(
-        button_frame, text='SpinnerSizedLoadingBar',
-        command=lambda: change_bar(SpinnerSizedLoadingBar)
+        button_frame,
+        text="SpinnerSizedLoadingBar",
+        command=lambda: change_bar(SpinnerSizedLoadingBar),
     ).grid(row=0, column=1, padx=10, pady=10)
     tk.Button(
-        button_frame, text='CircleLoadingBar',
-        command=lambda: change_bar(CircleLoadingBar)
+        button_frame,
+        text="CircleLoadingBar",
+        command=lambda: change_bar(CircleLoadingBar),
     ).grid(row=0, column=2, padx=10, pady=10)
 
     # pylint:disable=unnecessary-lambda
-    tk.Button(
-        button_frame, text='Stop',
-        command=lambda: spinner.stop()
-    ).grid(row=0, column=3, padx=10, pady=10)
+    tk.Button(button_frame, text="Stop", command=lambda: spinner.stop()).grid(row=0, column=3, padx=10, pady=10)
 
-    text = tk.Text(root)
-    text.insert("1.0", string.ascii_letters * 50)
-    text.grid()
-
-    spinner = TransparentSpinnerBar(
-        text, SpinnerSizedLoadingBar
-    )
     spinner.start()
 
     root.mainloop()
@@ -984,5 +992,5 @@ def main() -> None:
     root.mainloop()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

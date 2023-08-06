@@ -1,0 +1,6 @@
+[FORMAT]
+max-line-length=140
+
+[SIMILARITIES]
+# Ignore imports when computing similarities.
+ignore-imports=yes

@@ -1,8 +1,10 @@
-import setuptools
+"""setup.py"""
+
+import setuptools  # type:ignore[import]
 
 from tkhelper.package_info import __version__
 
-with open("README.md", "r") as file:
+with open("README.md", "r", encoding="utf-8") as file:
     long_description = file.read()
 
 setuptools.setup(
@@ -20,5 +22,5 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.3',
+    python_requires=">=3.3",
 )
