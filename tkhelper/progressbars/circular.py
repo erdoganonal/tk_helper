@@ -2,15 +2,14 @@
 busy the screen for a while
 """
 import abc
-import math
 import enum
-from typing import Any, Deque, Dict, List, Union, Iterable, Tuple, Optional, Generator, Type
-from collections import deque
+import math
 import string
-
 import tkinter as tk
-from colour import Color  # type:ignore[import]
+from collections import deque
+from typing import Any, Deque, Dict, Generator, Iterable, List, Optional, Tuple, Type, Union
 
+from colour import Color  # type:ignore[import]
 
 FULL_CIRCLE_DEGREE = 360
 
@@ -794,7 +793,7 @@ class TransparentSpinnerBar:
         self._loading_bar = self.kind(self._main_window, **self.kwargs)
         self._loading_bar.grid()
 
-        # TODO: Check for platform dependency
+        # TODO: Check for platform dependency  # pylint: disable=fixme # It is not going to fix in a short term.
         self._main_window.overrideredirect(True)  # Remove the title and border
         self._main_window.wm_attributes("-transparentcolor", self._TRANSPARENT_COLOR)
 

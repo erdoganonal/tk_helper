@@ -3,30 +3,15 @@
 Author: Erdogan Onal
 mailto: erdoganonal@windowslive.com
 """
-import os
 import enum
-import string
+import os
 import random
-from typing import (
-    Dict,
-    Literal,
-    NoReturn,
-    Optional,
-    TypeAlias,
-    TypeVar,
-    Union,
-    Any,
-    Type,
-    Tuple,
-    Callable,
-    Iterable,
-    overload,
-)
-
+import string
 import tkinter as tk
-from tkinter import filedialog
-from tkinter import ttk
+from tkinter import filedialog, ttk
 from tkinter.font import Font
+from typing import Any, Callable, Dict, Iterable, Literal, NoReturn, Optional, Tuple, Type, TypeAlias, TypeVar, Union, overload
+
 from PIL import Image, ImageTk
 
 # pylint: disable=too-many-ancestors
