@@ -7,22 +7,21 @@ import math
 import string
 import tkinter as tk
 from collections import deque
-from typing import Any, Deque, Dict, Generator, Iterable, List, Optional, Tuple, Type, Union
+from dataclasses import dataclass
+from tkinter.font import Font
+from typing import Any, Callable, Deque, Dict, Generator, Iterable, List, Optional, Tuple, Type, TypeAlias, Union
 
 from colour import Color  # type:ignore[import]
 
 FULL_CIRCLE_DEGREE = 360
 
+_ColorType: TypeAlias = Tuple[str, str, str, str, str, str, str, str]
 
 # pylint: disable=too-many-ancestors
+# pylint: disable=too-many-lines
 
 
-def _change_text(
-    root: tk.Misc,
-    label: tk.Label,
-    *p_bars: "CircularLoadingBarBase",
-    remaining_time: int = 2,
-) -> None:
+def _change_text(root: tk.Misc, label: tk.Label, *p_bars: "CircularLoadingBarBase", remaining_time: int = 2) -> None:
     """helper function for docstrings"""
     for p_bar in p_bars:
         if not p_bar.is_active:
@@ -34,10 +33,7 @@ def _change_text(
         label.config(text="The window will be destroyed in a second")
         root.after(1000, root.destroy)
     else:
-        root.after(
-            1000,
-            lambda: _change_text(root, label, *p_bars, remaining_time=remaining_time - 1),
-        )
+        root.after(1000, lambda: _change_text(root, label, *p_bars, remaining_time=remaining_time - 1))
 
 
 class InconsistentLengths(Exception):
@@ -57,7 +53,7 @@ class _EnumBase(enum.Enum):
                     return
             except TypeError:
                 pass
-        values = [repr(item) for item in cls.__dict__["_member_map_"].values()]
+        values = [repr(item) for item in cls]
 
         other_value = ""
         if len(values) > 1:
@@ -79,6 +75,15 @@ class AngleType(_EnumBase):
 
     DEGREE = "degree"
     RADIAN = "radian"
+
+
+# pylint: disable=too-few-public-methods
+class Colors:
+    """Holds pre-defined 8 length color range"""
+
+    GRAYED = ("#fafafa", "#f5f5f5", "#e0e0e0", "#bdbdbd", "#9e9e9e", "#757575", "#616161", "#424242")
+    RAINBOW = ("#fff100", "#ff8c00", "#e81123", "#4b0082", "#000080", "#00188f", "#00b294", "#bad80a")
+    BLACK = ("black", "black", "black", "black", "black", "black", "black", "black")
 
 
 class Converter:
@@ -190,7 +195,7 @@ class Mask(list[MaskItem]):
         super().__init__(args)
         self.rotate_by = rotate_by
 
-    def apply(self, obj: Any) -> None:
+    def apply(self, obj: "CircularLoadingBarBase") -> None:
         """Apply the mask on given items"""
         for idx, item_id in enumerate(obj.items):
             for mask_item in self:
@@ -218,6 +223,18 @@ class Mask(list[MaskItem]):
         return "\n".join(str(i) for i in self)
 
 
+@dataclass(frozen=True)
+class ProgressOptions:
+    """Options for progress"""
+
+    stop_bar_when_max: bool = False
+    stop_callback: Optional[Callable[[], Any]] = None
+    destroy_when_max: bool = False
+    destroy_callback: Optional[Callable[[], Any]] = None
+    color: str = "black"
+    font: Union[str, Font] = "Helvetica 15 bold"
+
+
 class CircularLoadingBarBase(tk.Canvas, metaclass=abc.ABCMeta):
     """Base for loading bar
 
@@ -237,18 +254,25 @@ CircularLoadingBarBase with abstract methods items, update_bar
 
     def __init__(
         self,
-        *args: Any,
+        *canvas_args: Any,
         mask: Mask,
         size: Optional[int] = None,
         shift: int = 0,
-        **kwargs: Any,
+        progress_options: Optional[ProgressOptions] = None,
+        **canvas_kwargs: Any,
     ) -> None:
-        if size is not None:
-            kwargs["width"] = kwargs["height"] = size
-        super().__init__(*args, **kwargs)
+        if size is None:
+            size = 250
+
+        canvas_kwargs["width"] = canvas_kwargs["height"] = size
+
+        super().__init__(*canvas_args, **canvas_kwargs)
 
         self.shift = shift
         self._is_active = False
+        self._text_id: Optional[int] = None
+        self._progress = 0.0
+        self._progress_options = progress_options
         self.mask = mask
 
     @property
@@ -363,6 +387,42 @@ CircularLoadingBarBase with abstract methods items, update_bar
     def update_bar(self) -> None:
         """updates the loading bar attributes"""
 
+    def _add_progress_text(self) -> None:
+        if self._text_id is not None:
+            raise RuntimeError("Progress text already created")
+
+        if self._progress_options is None:
+            return
+
+        self._text_id = self.create_text(
+            int(self.cget("width")) / 2,
+            int(self.cget("width")) / 2,
+            text="00.00",
+            fill=self._progress_options.color,
+            font=self._progress_options.font,
+            anchor=tk.CENTER,
+        )
+
+    def update_progress(self, update_by: float = 1.0) -> float:
+        """updates the loading progress"""
+        if self._progress_options is None or self._text_id is None:
+            return -1
+
+        self._progress += update_by
+        if self._progress > 100:
+            if self._progress_options.stop_bar_when_max:
+                self.stop()
+                if self._progress_options.stop_callback:
+                    self._progress_options.stop_callback()
+            if self._progress_options.destroy_when_max:
+                self.destroy()
+                if self._progress_options.destroy_callback:
+                    self._progress_options.destroy_callback()
+        else:
+            self.itemconfigure(self._text_id, text=f"{self._progress:.2f}")
+
+        return self._progress
+
     def _start(self, interval_ms: int) -> None:
         if not self.is_active:
             return
@@ -376,11 +436,16 @@ CircularLoadingBarBase with abstract methods items, update_bar
         if self.is_active:
             return
 
+        if self._progress_options is not None:
+            self._add_progress_text()
+
         self._is_active = True
         self._start(interval_ms=interval_ms)
 
     def stop(self) -> None:
         """stop the bar"""
+        self._progress = 0.0
+        self._text_id = None
         self._is_active = False
 
     def create_centered_circle(self, center_x: int, center_y: int, radius: float, **kwargs: Any) -> int:
@@ -436,6 +501,7 @@ CircularLoadingBarBase with abstract methods items, update_bar
     def __del__(self) -> None:
         try:
             self.stop()
+            self.update()
         except AttributeError:
             pass
 
@@ -450,8 +516,17 @@ class SpinningCirclesLoadingBarBase(CircularLoadingBarBase):
         offset:   The offset value to avoid inner circle overflow.
     """
 
-    def __init__(self, *args: Any, offset: Optional[int] = None, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        *canvas_args: Any,
+        offset: Optional[int] = None,
+        mask: Mask,
+        size: Optional[int] = None,
+        shift: int = 0,
+        progress_options: Optional[ProgressOptions] = None,
+        **canvas_kwargs: Any,
+    ) -> None:
+        super().__init__(*canvas_args, mask=mask, size=size, shift=shift, progress_options=progress_options, **canvas_kwargs)
 
         self.circles: List[int] = []
         self.offset = offset
@@ -491,7 +566,7 @@ class SpinnerLoadingBar(SpinningCirclesLoadingBarBase):
         ''
         >>> label = tk.Label()
         >>> label.grid()
-        >>> bar1 = SpinnerLoadingBar(root, size=200, colors=SpinnerLoadingBar.GRAYED)
+        >>> bar1 = SpinnerLoadingBar(root, size=200, colors=Colors.GRAYED)
         >>> bar1.grid()
         >>> bar2 = SpinnerLoadingBar(root, size=200)
         >>> bar2.grid()
@@ -500,39 +575,18 @@ class SpinnerLoadingBar(SpinningCirclesLoadingBarBase):
         >>> root.mainloop()
     """
 
-    GRAYED: Tuple[str, str, str, str, str, str, str, str] = (
-        "#fafafa",
-        "#f5f5f5",
-        "#e0e0e0",
-        "#bdbdbd",
-        "#9e9e9e",
-        "#757575",
-        "#616161",
-        "#424242",
-    )
-    RAINBOW: Tuple[str, str, str, str, str, str, str, str] = (
-        "#fff100",
-        "#ff8c00",
-        "#e81123",
-        "#4b0082",
-        "#000080",
-        "#00188f",
-        "#00b294",
-        "#bad80a",
-    )
-
     def __init__(
         self,
-        *args: Any,
-        colors: Optional[Tuple[str, str, str, str, str, str, str, str]] = None,
-        **kwargs: Any,
+        *canvas_args: Any,
+        colors: _ColorType = Colors.RAINBOW,
+        size: Optional[int] = None,
+        mask: Optional[Mask] = None,
+        shift: int = 0,
+        progress_options: Optional[ProgressOptions] = None,
+        **canvas_kwargs: Any,
     ) -> None:
-        if colors is None:
-            colors = self.RAINBOW
-
-        kwargs["mask"] = kwargs.get("mask", Mask(MaskItem("itemconfig", fill=colors)))
-
-        super().__init__(*args, **kwargs)
+        mask = mask or Mask(MaskItem("itemconfig", fill=colors))
+        super().__init__(*canvas_args, size=size, shift=shift, mask=mask, progress_options=progress_options, **canvas_kwargs)
 
 
 class SpinnerSizedLoadingBar(SpinningCirclesLoadingBarBase):
@@ -553,17 +607,26 @@ class SpinnerSizedLoadingBar(SpinningCirclesLoadingBarBase):
         >>> root.mainloop()
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *canvas_args: Any,
+        size: Optional[int] = None,
+        mask: Optional[Mask] = None,
+        shift: int = 0,
+        colors: _ColorType = Colors.BLACK,
+        progress_options: Optional[ProgressOptions] = None,
+        **canvas_kwargs: Any,
+    ) -> None:
         min_radius = 5
         circles = 8
         resize_mask = range(min_radius, min_radius + circles)
         default_mask = Mask(
             MaskItem("resize", radius=resize_mask),
-            MaskItem("itemconfig", fill=["black"] * len(resize_mask)),
+            MaskItem("itemconfig", fill=colors),
         )
 
-        kwargs["mask"] = kwargs.get("mask", default_mask)
-        super().__init__(*args, **kwargs)
+        mask = mask or default_mask
+        super().__init__(*canvas_args, size=size, mask=mask, shift=shift, progress_options=progress_options, **canvas_kwargs)
 
 
 class CircleLoadingBar(CircularLoadingBarBase):
@@ -589,14 +652,17 @@ class CircleLoadingBar(CircularLoadingBarBase):
 
     def __init__(
         self,
-        *args: Any,
+        *canvas_args: Any,
         width: int = 10,
         color1: Optional[str] = None,
         color2: Optional[str] = None,
         steps: int = 180,
         color_range: Optional[Iterable[str]] = None,
         symmetric: bool = True,
-        **kwargs: Any,
+        size: Optional[int] = None,
+        shift: int = 0,
+        progress_options: Optional[ProgressOptions] = None,
+        **canvas_kwargs: Any,
     ) -> None:
         if color_range and (color1 or color2):
             raise ValueError("You are not allowed to pass color_range and colors at the same time")
@@ -614,19 +680,13 @@ class CircleLoadingBar(CircularLoadingBarBase):
                 color_range = colors + colors[-2::-1]
             else:
                 color_range = self.get_range(color1, color2, steps)
-        kwargs["mask"] = Mask(
-            MaskItem(
-                "itemconfig",
-                outline=color_range,
-            ),
-            rotate_by=-1,
-        )
+        mask = Mask(MaskItem("itemconfig", outline=color_range), rotate_by=-1)
 
         self.width = width
         self.oval1_id = 0
         self.oval2_id = 0
 
-        super().__init__(*args, **kwargs)
+        super().__init__(*canvas_args, size=size, mask=mask, shift=shift, progress_options=progress_options, **canvas_kwargs)
 
     @property
     def items(self) -> List[int]:
@@ -904,30 +964,87 @@ class TransparentSpinnerBar:
         if self._main_window:
             self._main_window.destroy()
 
+    def update_progress(self, update_by: float = 1.0) -> float:
+        """Same as CircularLoadingBarBase.update_progress"""
+        if self._loading_bar is None:
+            raise RuntimeError("Cannot update uninitialized bar")
+        return self._loading_bar.update_progress(update_by)
 
-def test_spinner_loading_bar(root: Union[tk.Tk, tk.Widget]) -> None:
+
+def test_spinner_loading_bar(root: Union[tk.Tk, tk.Widget]) -> SpinnerLoadingBar:
     """Render a rainbow colored circle spinner bar"""
-    loading = SpinnerLoadingBar(
-        root,
-        colors=SpinnerLoadingBar.RAINBOW,
-    )
+    loading = SpinnerLoadingBar(root, colors=Colors.RAINBOW)
     loading.grid(row=0, column=0)
     loading.start()
 
+    return loading
 
-def test_spinner_sized_loading_bar(root: Union[tk.Tk, tk.Widget]) -> None:
+
+def test_spinner_sized_loading_bar(root: Union[tk.Tk, tk.Widget]) -> SpinnerSizedLoadingBar:
     """Render a spinner bar that the circles resize"""
 
     loading = SpinnerSizedLoadingBar(root)
     loading.grid(row=0, column=1)
     loading.start()
 
+    return loading
 
-def test_circular_loading_bar(root: Union[tk.Tk, tk.Widget]) -> None:
+
+def test_circular_loading_bar(root: Union[tk.Tk, tk.Widget]) -> CircleLoadingBar:
     """Render a circular loading bar"""
     circle_loading_bar = CircleLoadingBar(root, symmetric=True)
     circle_loading_bar.grid(row=0, column=2)
     circle_loading_bar.start(interval_ms=8)
+
+    return circle_loading_bar
+
+
+def test_spinner_loading_bar_with_progress(root: Union[tk.Tk, tk.Widget]) -> SpinnerLoadingBar:
+    """Render a rainbow colored circle spinner bar with a progress"""
+    loading = SpinnerLoadingBar(root, colors=Colors.GRAYED, size=250, progress_options=ProgressOptions(stop_bar_when_max=True))
+    loading.grid(row=1, column=0)
+
+    def _update_progress() -> None:
+        loading.update_progress()
+        if loading.is_active:
+            loading.after(100, _update_progress)
+
+    loading.after(3000, _update_progress)
+    loading.start()
+
+    return loading
+
+
+def test_spinner_sized_loading_bar_with_progress(root: Union[tk.Tk, tk.Widget]) -> SpinnerSizedLoadingBar:
+    """Render a rainbow colored circle spinner bar with a progress"""
+    loading = SpinnerSizedLoadingBar(root, size=250, progress_options=ProgressOptions(stop_bar_when_max=True), colors=Colors.RAINBOW)
+    loading.grid(row=1, column=1)
+
+    def _update_progress() -> None:
+        loading.update_progress()
+        loading.after(100, _update_progress)
+
+    loading.after(3000, _update_progress)
+    loading.start()
+
+    return loading
+
+
+def test_circular_loading_bar_with_progress(root: Union[tk.Tk, tk.Widget]) -> CircleLoadingBar:
+    """Render a rainbow colored circle spinner bar with a progress"""
+    loading = CircleLoadingBar(
+        root, symmetric=True, size=250, progress_options=ProgressOptions(stop_bar_when_max=True), color1="yellow", color2="purple"
+    )
+    loading.grid(row=1, column=2)
+
+    def _update_progress() -> None:
+        loading.update_progress()
+        loading.after(100, _update_progress)
+
+    loading.after(3000, _update_progress)
+    loading.start(interval_ms=8)
+
+    return loading
 
 
 def test_a_working_app() -> None:
@@ -940,11 +1057,26 @@ def test_a_working_app() -> None:
     text = tk.Text(root)
     text.insert("1.0", string.ascii_letters * 50)
     text.grid()
-    spinner = TransparentSpinnerBar(text, SpinnerSizedLoadingBar)
+    spinner = TransparentSpinnerBar(text, SpinnerSizedLoadingBar, size=250)
 
-    def change_bar(kind: Type[CircularLoadingBarBase]) -> None:
+    def _update_progress() -> None:
+        nonlocal spinner
+
+        spinner.update_progress()
+        root.after(100, _update_progress)
+
+    def change_bar(kind: Type[CircularLoadingBarBase], with_progress: bool = False) -> None:
         nonlocal spinner
         spinner.kind = kind
+        if with_progress:
+            spinner.kwargs["progress_options"] = ProgressOptions(
+                stop_bar_when_max=True, destroy_when_max=True, destroy_callback=spinner.stop
+            )
+        else:
+            try:
+                del spinner.kwargs["progress_options"]
+            except KeyError:
+                pass
 
         spinner.stop()
         if kind == CircleLoadingBar:
@@ -952,27 +1084,37 @@ def test_a_working_app() -> None:
         else:
             spinner.start(interval_ms=100)
 
-    tk.Button(
-        button_frame,
-        text="SpinnerLoadingBar",
-        command=lambda: change_bar(SpinnerLoadingBar),
-    ).grid(row=0, column=0, padx=10, pady=10)
-    tk.Button(
-        button_frame,
-        text="SpinnerSizedLoadingBar",
-        command=lambda: change_bar(SpinnerSizedLoadingBar),
-    ).grid(row=0, column=1, padx=10, pady=10)
-    tk.Button(
-        button_frame,
-        text="CircleLoadingBar",
-        command=lambda: change_bar(CircleLoadingBar),
-    ).grid(row=0, column=2, padx=10, pady=10)
+        if with_progress:
+            root.after(100, _update_progress)
 
-    # pylint:disable=unnecessary-lambda
-    tk.Button(button_frame, text="Stop", command=lambda: spinner.stop()).grid(row=0, column=3, padx=10, pady=10)
+    for idx, options in enumerate((SpinnerLoadingBar, SpinnerSizedLoadingBar, CircleLoadingBar)):
+        tk.Button(
+            button_frame,
+            text=options.__name__,
+            command=lambda opt=options: change_bar(opt),  # type: ignore[misc]
+        ).grid(row=0, column=idx, padx=10, pady=10)
+
+        tk.Button(
+            button_frame,
+            text=options.__name__ + "WithProgress",
+            command=lambda opt=options: change_bar(opt, with_progress=True),  # type: ignore[misc]
+        ).grid(row=1, column=idx, padx=10, pady=10)
+
+    tk.Button(button_frame, text="Stop", command=spinner.stop).grid(row=2, column=1, padx=10, pady=10)
 
     spinner.start()
 
+    def _exit(wait: bool = True) -> None:
+        nonlocal spinner, root
+
+        spinner.stop()
+        if wait:
+            root.after(1000, lambda: _exit(wait=False))
+        else:
+            root.destroy()
+            root.quit()
+
+    root.protocol("WM_DELETE_WINDOW", _exit)
     root.mainloop()
 
 
@@ -981,14 +1123,16 @@ def main() -> None:
     root = tk.Tk()
 
     test_spinner_loading_bar(root)
-
     test_spinner_sized_loading_bar(root)
-
     test_circular_loading_bar(root)
 
-    test_a_working_app()
+    test_spinner_loading_bar_with_progress(root)
+    test_spinner_sized_loading_bar_with_progress(root)
+    test_circular_loading_bar_with_progress(root)
 
     root.mainloop()
+
+    test_a_working_app()
 
 
 if __name__ == "__main__":
