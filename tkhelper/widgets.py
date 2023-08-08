@@ -10,7 +10,23 @@ import string
 import tkinter as tk
 from tkinter import filedialog, ttk
 from tkinter.font import Font
-from typing import Any, Callable, Dict, Iterable, Literal, NoReturn, Optional, Tuple, Type, TypeAlias, TypeVar, Union, overload
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    NoReturn,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeAlias,
+    TypeVar,
+    Union,
+    overload,
+)
 
 from PIL import Image, ImageTk
 
@@ -21,6 +37,7 @@ LETTERS_AND_DIGITS = string.ascii_letters + string.digits
 SAMPLES: Dict[str, str] = {}
 
 _DOCTEST_TIME_MS = 1 * 1000
+_MAX_WEIGHT = 10000
 
 _T = TypeVar("_T", bound=tk.Widget)
 _GridOptionType: TypeAlias = Dict[str, Union[int, str, Tuple[Union[str, float], Union[str, float]], tk.Misc]]
@@ -260,6 +277,23 @@ def create_widget(widget_class: Type[_T], *args: Any, **kwargs: Any) -> _T:
         AddToolTip(widget, tooltip)
 
     return widget
+
+
+def update_and_center(
+    root: tk.Tk | tk.Toplevel, other: tk.Misc | None = None, vertical_taskbar_offset: int = 0, horizontal_taskbar_offset: int = 0
+) -> None:
+    """Update the window and center in the screen"""
+
+    root.update()
+
+    if other:
+        x_pos = other.winfo_rootx() + (other.winfo_width() - root.winfo_width()) // 2
+        y_pos = other.winfo_rooty() + (other.winfo_height() - root.winfo_height()) // 2
+    else:
+        x_pos = (root.winfo_screenwidth() - root.winfo_width() - vertical_taskbar_offset) // 2
+        y_pos = (root.winfo_screenheight() - root.winfo_height() - horizontal_taskbar_offset) // 2
+
+    root.geometry(f"+{x_pos}" f"+{y_pos}")
 
 
 class EntryWithPlaceholder(tk.Entry):
@@ -537,6 +571,173 @@ class SelectionWidget(tk.Frame):
         }
         default_grid_options.update(grid_options)
         self.button.grid_configure(**default_grid_options)  # type:ignore
+
+
+class MultiColumnListbox:
+    """use a ttk.TreeView as a multicolumn ListBox"""
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        headers: Sequence[str],
+        sort: List[Callable[[Tuple[Any, str]], Any]] | List[bool] | bool | None = None,
+    ) -> None:
+        self.master = master
+        self._headers = list(headers)
+        self._columns: Dict[str, List[str]] = {}
+
+        self._setup_widgets(sort=sort)
+
+    def _setup_widgets(self, sort: List[Callable[[Tuple[Any, str]], Any]] | List[bool] | bool | None = None) -> None:
+        container = ttk.Frame(self.master)
+        container.grid(sticky=tk.NSEW)
+
+        # create a treeview with dual scrollbar
+        self.tree = ttk.Treeview(container, columns=self._headers, show="headings", selectmode=tk.BROWSE)
+        vsb = ttk.Scrollbar(container, orient=tk.VERTICAL, command=self.tree.yview)
+        # hsb = ttk.Scrollbar(orient=tk.HORIZONTAL, command=self.tree.xview)
+
+        self.tree.grid(column=0, row=0, sticky=tk.NSEW, padx=5)
+        vsb.grid(column=1, row=0, sticky=tk.NS)
+
+        self.tree.configure(yscrollcommand=vsb.set)
+        # self.tree.configure(yscrollcommand=hsb.set)
+        # hsb.grid(column=0, row=1, sticky=tk.EW, in_=container)
+        container.grid_columnconfigure(0, weight=_MAX_WEIGHT)
+        container.grid_columnconfigure(1, weight=1)
+        container.grid_rowconfigure(0, weight=1)
+
+        for idx, col in enumerate(self._headers):
+            # adjust the column's width to the header string
+            self.tree.column(col, width=Font().measure(col.title()))
+
+            if (isinstance(sort, bool) and sort) or (isinstance(sort, list) and isinstance(sort[idx], bool) and sort[idx]):
+                self.tree.heading(col, text=col.title(), command=lambda c=col: sortby(self.tree, c, False))  # type: ignore[misc]
+            elif sort is not None and isinstance(sort, list) and callable(sort[idx]):
+                self.tree.heading(
+                    col,
+                    text=col.title(),
+                    command=lambda c=col, sorter=sort[idx]: sortby(self.tree, c, False, sorter=sorter),  # type: ignore[misc]
+                )
+            else:
+                self.tree.heading(col, text=col.title())
+
+    def add_rows(self, columns_list: Sequence[Sequence[str]], smart_width: bool = True) -> List[str]:
+        """Add new rows at the end of the list"""
+        item_ids = []
+        for columns in columns_list:
+            item_id = self.add_row(columns, smart_width=smart_width)
+            item_ids.append(item_id)
+        return item_ids
+
+    def add_row(self, columns: Sequence[str], smart_width: bool = True) -> str:
+        """Add a new row at the end of the list"""
+        return self.insert_row(columns, row=-1, smart_width=smart_width)
+
+    def insert_row(self, columns: Sequence[str], row: int, smart_width: bool = True) -> str:
+        """Add a new row at the end of the list"""
+
+        if len(columns) != len(self._headers):
+            raise ValueError("The length of the columns do not match the length of the headers.")
+
+        item_id = self.tree.insert("", row if row >= 0 else tk.END, values=list(columns))
+
+        if smart_width:
+            for idx, val in enumerate(columns):
+                col_w = Font().measure(val)
+                if self.tree.column(self._headers[idx], width=None) < col_w:  # type: ignore[call-overload]
+                    self.tree.column(self._headers[idx], width=col_w)
+
+        self._columns[item_id] = list(columns)
+        return item_id
+
+    @overload
+    def get_selected(self) -> Optional[Sequence[str]]:
+        pass
+
+    @overload
+    def get_selected(self, key: str) -> Optional[str]:
+        pass
+
+    def get_selected(self, key: Optional[str] = None) -> Sequence[str] | str | None:
+        """return the currently selected item"""
+        selected = self.tree.selection()
+        if len(selected) == 0:
+            return None
+
+        items = self.tree.item(selected[0])["values"]
+        if key is None:
+            return items
+
+        return items[self._headers.index(key)]
+
+    def select_by_column_value(self, column_name: str, column_value: str) -> Optional[str]:
+        """Select the treeview item by column.
+        Selects the first one if multiple values exists.
+        """
+        column_idx = self._headers.index(column_name)
+        item_id: Optional[str] = None
+
+        for key, column_values in self._columns.items():
+            if column_value == column_values[column_idx]:
+                item_id = key
+                break
+
+        if item_id:
+            self.tree.selection_set(item_id)
+            self.tree.focus()
+
+        return item_id
+
+    def select_by_column(self, column: Sequence[str]) -> Optional[str]:
+        """Select the treeview item by column.
+        Selects the first one if multiple values exists.
+        """
+        item_id: Optional[str] = None
+
+        for key, column_values in self._columns.items():
+            if len(column) == len(column_values) and all(l1 == l2 for l1, l2 in zip(column_values, column)):
+                item_id = key
+                break
+
+        if item_id:
+            self.tree.selection_set(item_id)
+            self.tree.focus()
+
+        return item_id
+
+    def clear(self) -> None:
+        """Clear the list"""
+        for item in self._columns:
+            self.tree.delete(item)
+
+        self._columns.clear()
+
+    def destroy(self) -> None:
+        """Clear the list and destroy the widget"""
+
+        self.clear()
+        self._headers.clear()
+        self.tree.master.destroy()
+
+
+def _sorter(item: Tuple[Any, str]) -> Any:
+    try:
+        return int(item[0])
+    except ValueError:
+        return item[0]
+
+
+def sortby(tree: ttk.Treeview, col: int | str, descending: bool, sorter: Callable[[Tuple[Any, str]], Any] = _sorter) -> None:
+    """sort tree contents when a column header is clicked on"""
+    # grab values to sort
+    data = [(tree.set(child, col), child) for child in tree.get_children("")]
+    data.sort(reverse=descending, key=sorter)
+
+    for idx, item in enumerate(data):
+        tree.move(item[1], "", idx)
+    # switch the heading so it will sort in the opposite direction
+    tree.heading(col, command=lambda col=col: sortby(tree, col, not descending))
 
 
 class _ResizableBase(tk.Widget):
@@ -892,6 +1093,223 @@ class FixedSizedOptionMenu(ttk.OptionMenu):
         style["width"] = int(width) + 2  # add some offset
 
         return style
+
+
+# pylint: disable=too-many-arguments
+class VerticalScrollFrame(ttk.Frame):
+    """A widget container with a vertical scrollbar."""
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        padding: int = 2,
+        autohide: bool = False,
+        height: int = 200,
+        width: int = 300,
+        scrollheight: float = None,  # type: ignore[assignment]
+        **kwargs: Any,
+    ):
+        # content frame container
+        self.container = ttk.Frame(master=master, relief=tk.FLAT, borderwidth=0, width=width, height=height)
+        self.container.bind("<Configure>", lambda _: self.yview())
+        self.container.propagate(False)
+
+        # content frame
+        super().__init__(master=self.container, padding=padding, **kwargs)
+        self.place(rely=0.0, relwidth=1.0, height=scrollheight)
+
+        # vertical scrollbar
+        self.vscroll = ttk.Scrollbar(master=self.container, command=self.yview, orient=tk.VERTICAL)
+        self.show_scrollbars()
+
+        self.winsys: str = self.tk.call("tk", "windowingsystem")
+
+        # setup autohide scrollbar
+        self.autohide = autohide
+        if self.autohide:
+            self.hide_scrollbars()
+
+        # widget event binding
+        self.container.bind("<Enter>", self._on_enter, "+")
+        self.container.bind("<Leave>", self._on_leave, "+")
+        self.container.bind("<Map>", self._on_map, "+")
+        self.bind("<<MapChild>>", self._on_map_child, "+")
+
+        self.bind_all("<MouseWheel>", self.scroll_event, add=True)
+
+        # delegate content geometry methods to container frame
+        _methods = vars(tk.Pack).keys() | vars(tk.Grid).keys() | vars(tk.Place).keys()
+        for method in _methods:
+            if any(["pack" in method, "grid" in method, "place" in method]):
+                # prefix content frame methods with 'content_'
+                setattr(self, f"content_{method}", getattr(self, method))
+                # overwrite content frame methods from container frame
+                setattr(self, method, getattr(self.container, method))
+
+    def yview(self, *args: Any) -> None:
+        """Update the vertical position of the content frame within the container."""
+
+        if not args:
+            first, _ = self.vscroll.get()  # type: ignore[misc]
+            self.yview_moveto(fraction=first)
+        elif args[0] == "moveto":
+            self.yview_moveto(fraction=float(args[1]))
+        elif args[0] == "scroll":
+            self.yview_scroll(number=int(args[1]), what=args[2])
+        else:
+            return
+
+    def yview_moveto(self, fraction: float) -> None:
+        """Update the vertical position of the content frame within the container.
+
+        fraction (float):
+                The relative position of the content frame within the container.
+        """
+        base, thumb = self._measures()
+        if fraction < 0:
+            first = 0.0
+        elif (fraction + thumb) > 1:
+            first = 1 - thumb
+        else:
+            first = fraction
+        self.vscroll.set(first, first + thumb)
+        self.content_place(rely=-first * base)  # type: ignore[attr-defined]  # pylint: disable=no-member
+
+    def yview_scroll(self, number: int, what: str) -> None:  # pylint: disable=unused-argument
+        """Update the vertical position of the content frame within the container.
+
+        number (int):
+            The amount by which the content frame will be moved within the container frame by 'what' units.
+        what (str):
+            The type of units by which the number is to be interpreted. This parameter is currently not used and is assumed to be 'units'.
+        """
+        first, _ = self.vscroll.get()  # type: ignore[misc]
+        fraction = (number / 100) + first
+        self.yview_moveto(fraction)
+
+    def scroll_top(self) -> None:
+        """Go to the top of the widget"""
+        self.yview_moveto(0.0)
+
+    def scroll_bottom(self) -> None:
+        """Go to the bottom of the widget"""
+        self.yview_moveto(1.0)
+
+    @staticmethod
+    def _get_parent(widget: tk.Misc) -> Optional[ttk.Frame]:
+        while widget.master:
+            widget = widget.master
+            if isinstance(widget, ttk.Frame):
+                return widget
+
+        return None
+
+    def _has_same_widget(self, widget: tk.Misc) -> bool:
+        try:
+            if widget.winfo_toplevel() is not self.winfo_toplevel():
+                raise tk.TclError
+        except tk.TclError:
+            return False
+
+        while widget:
+            if self is widget:
+                return True
+            widget = self._get_parent(widget)  # type: ignore[assignment]
+
+        return widget is not None
+
+    def scroll_event(self, event: "tk.Event[tk.Misc]") -> None:
+        """Allow to scroll with mouse"""
+        if not self._has_same_widget(event.widget):
+            return
+        number = -1 * (event.delta // 120)
+        self.yview_scroll(number, tk.UNITS)
+
+    def enable_scrolling(self) -> None:
+        """Enable mousewheel scrolling on the frame and all of its children."""
+        widgets: Iterable[tk.Widget] = [self, *self.winfo_children()]
+        for widget in widgets:
+            bindings = widget.bind()
+            if self.winsys.lower() == "x11":
+                if "<Button-4>" in bindings or "<Button-5>" in bindings:
+                    continue
+                widget.bind("<Button-4>", self._on_mousewheel, "+")
+                widget.bind("<Button-5>", self._on_mousewheel, "+")
+            else:
+                if "<MouseWheel>" not in bindings:
+                    widget.bind("<MouseWheel>", self._on_mousewheel, "+")
+
+    def disable_scrolling(self) -> None:
+        """Disable mousewheel scrolling on the frame and all of its children."""
+        widgets: Iterable[tk.Widget] = [self, *self.winfo_children()]
+        for widget in widgets:
+            if self.winsys.lower() == "x11":
+                widget.unbind("<Button-4>")
+                widget.unbind("<Button-5>")
+            else:
+                widget.unbind("<MouseWheel>")
+
+    def hide_scrollbars(self) -> None:
+        """Hide the scrollbars."""
+        self.vscroll.pack_forget()
+
+    def show_scrollbars(self) -> None:
+        """Show the scrollbars."""
+        self.vscroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def autohide_scrollbar(self) -> None:
+        """Toggle the autohide functionality. Show the scrollbars when
+        the mouse enters the widget frame, and hide when it leaves the
+        frame."""
+        self.autohide = not self.autohide
+
+    def _measures(self) -> Tuple[float, float]:
+        """Measure the base size of the container and the thumb size
+        for use in the yview methods"""
+        outer = self.container.winfo_height()
+        inner = max([self.winfo_height(), outer])
+        base = inner / outer
+        if inner == outer:
+            thumb = 1.0
+        else:
+            thumb = outer / inner
+        return base, thumb
+
+    def _on_map_child(self, _: "tk.Event[Any]") -> None:
+        """Callback for when a widget is mapped to the content frame."""
+        if self.container.winfo_ismapped():
+            self.yview()
+
+    def _on_enter(self, _: "tk.Event[Any]") -> None:
+        """Callback for when the mouse enters the widget."""
+        self.enable_scrolling()
+        if self.autohide:
+            self.show_scrollbars()
+
+    def _on_leave(self, _: "tk.Event[Any]") -> None:
+        """Callback for when the mouse leaves the widget."""
+        self.disable_scrolling()
+        if self.autohide:
+            self.hide_scrollbars()
+
+    def _on_configure(self, _: "tk.Event[Any]") -> None:
+        """Callback for when the widget is configured"""
+        self.yview()
+
+    def _on_map(self, _: "tk.Event[Any]") -> None:
+        self.yview()
+
+    def _on_mousewheel(self, event: "tk.Event[Any]") -> None:
+        """Callback for when the mouse wheel is scrolled."""
+        if self.winsys.lower() == "win32":
+            delta = -int(event.delta / 120)
+        elif self.winsys.lower() == "aqua":
+            delta = -event.delta
+        elif event.num == 4:
+            delta = -10
+        elif event.num == 5:
+            delta = 10
+        self.yview_scroll(delta, tk.UNITS)
 
 
 def test_selection(root: Union[tk.Tk, tk.Widget]) -> None:
