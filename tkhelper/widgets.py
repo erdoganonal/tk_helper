@@ -76,7 +76,7 @@ class TkRecursionError(TkHelperBaseError, RecursionError):
 class Objectless(type):
     """A metaclass to disable instantiation"""
 
-    def __call__(cls) -> NoReturn:
+    def __call__(cls, *args: Any, **kwargs: Any) -> NoReturn:
         raise RuntimeError(f"{cls} should not be instantiated")
 
 

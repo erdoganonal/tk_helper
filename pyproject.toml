@@ -1,0 +1,59 @@
+[project]
+name = "tkhelper"
+authors = [{ name = "Erdogan Onal", email = "erdoganonal@windowslive.com" }]
+description = "A module to display some customized tkinter modules"
+requires-python = ">=3.6"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+readme = {file = 'README.md', content-type='text/markdown'}
+dynamic = ["dependencies", "version"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+version = { attr = "tkhelper.package_info.__version__" }
+
+[project.urls]
+"Homepage" = "https://github.com/erdoganonal/tk_helper"
+"Bug Tracker" = "https://github.com/erdoganonal/tk_helper/issues"
+
+[tool.isort]
+profile = "black"
+
+[tool.black]
+line-length = 140
+check = true
+
+[tool.mypy]
+strict = true
+show_error_codes = true
+implicit_reexport = true
+exclude = ["env", "tests"]
+
+[tool.pylint]
+max-line-length = 140
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+envlist =
+    py310
+
+[testenv]
+deps =
+    pylint
+    mypy
+    black
+    isort
+    colour
+    Pillow
+    types-Pillow
+
+commands =
+    isort tkhelper --check --diff --line-length 140 --color
+    mypy tkhelper
+    black tkhelper
+    pylint tkhelper
+"""
