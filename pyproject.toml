@@ -19,12 +19,14 @@ version = { attr = "tkhelper.package_info.__version__" }
 "Homepage" = "https://github.com/erdoganonal/tk_helper"
 "Bug Tracker" = "https://github.com/erdoganonal/tk_helper/issues"
 
+[tool.setuptools.package-data]
+"tkhelper" = ["py.typed"]
+
 [tool.isort]
 profile = "black"
 
 [tool.black]
 line-length = 140
-check = true
 
 [tool.mypy]
 strict = true
@@ -54,6 +56,6 @@ deps =
 commands =
     isort tkhelper --check --diff --line-length 140 --color
     mypy tkhelper
-    black tkhelper
+    black tkhelper --check
     pylint tkhelper
 """

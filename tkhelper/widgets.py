@@ -6,7 +6,7 @@ mailto: erdoganonal@windowslive.com
 import enum
 import os
 import random
-import string
+import string as _string
 import tkinter as tk
 from tkinter import filedialog, ttk
 from tkinter.font import Font
@@ -14,6 +14,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Generic,
     Iterable,
     List,
     Literal,
@@ -33,13 +34,14 @@ from PIL import Image, ImageTk
 # pylint: disable=too-many-ancestors
 # pylint: disable=too-many-lines
 
-LETTERS_AND_DIGITS = string.ascii_letters + string.digits
+LETTERS_AND_DIGITS = _string.ascii_letters + _string.digits
 SAMPLES: Dict[str, str] = {}
 
 _DOCTEST_TIME_MS = 1 * 1000
 _MAX_WEIGHT = 10000
 
 _T = TypeVar("_T", bound=tk.Widget)
+_K = TypeVar("_K", bound=enum.Enum)
 _GridOptionType: TypeAlias = Dict[str, Union[int, str, Tuple[Union[str, float], Union[str, float]], tk.Misc]]
 
 
@@ -63,7 +65,7 @@ class TkHelperBaseError(Exception):
 class InvalidChoice(TkHelperBaseError):
     """Raise when given choice is not valid"""
 
-    def __init__(self, option: Any, options_enum: Any):
+    def __init__(self, option: Any, options_enum: Any) -> None:
         message = f"Given option[{option}] is not a valid option. Valid options: {', '.join(map(str, options_enum))}"
 
         super().__init__(message)
@@ -219,52 +221,87 @@ def configure(widget: Union[tk.Tk, tk.Widget], theme: Type[Theme] = Theme) -> No
         configure(child, theme)
 
 
-class AddToolTip:
+class ToolTip:
     """Create a tooltip window to display help message
     Args:
         widget: A widget to add tooltip
         text:   Help message to display.
     """
 
-    def __init__(self, widget: Union[tk.Tk, tk.Widget], text: str):
-        self.text = text
+    def __init__(self, widget: tk.Widget) -> None:
         self.widget = widget
         self.tip_window: Optional[tk.Toplevel] = None
 
-        self.widget.bind("<Enter>", lambda event: self.showtip())
-        self.widget.bind("<Leave>", lambda event: self.hidetip())
+    def showtip(self, text: str) -> None:
+        """Display text in tooltip window.
 
-    def showtip(self) -> None:
-        """Display text in tooltip window"""
-        x_offset = y_offset = 30
+        @param text:     Tooltip text to display.
+        """
 
-        if self.tip_window or not self.text:
+        if self.tip_window or not text:
             return
 
-        bbox_result: Tuple[int, int, int, int] = self.widget.bbox("insert")  # type: ignore[call-overload]
-        coord_x, coord_y, _, coord_y2 = bbox_result
-        coord_x = coord_x + self.widget.winfo_rootx() + x_offset
-        coord_y = coord_y + coord_y2 + self.widget.winfo_rooty() + y_offset
-        self.tip_window = tk.Toplevel(self.widget)
-        self.tip_window.wm_overrideredirect(True)
-        self.tip_window.wm_geometry(f"+{coord_x}+{coord_y}")
+        bbox = self.widget.bbox("insert") or self.widget.bbox("all")  # type: ignore[call-overload]
+        if bbox is None:
+            return
+
+        x_value, y_value, _, cy_value = bbox
+        x_value = x_value + self.widget.winfo_rootx()
+        y_value = y_value + cy_value + self.widget.winfo_rooty() + self.widget.winfo_height()
+        self.tip_window = tip_window = tk.Toplevel(self.widget)
+        tip_window.wm_overrideredirect(True)
+        tip_window.wm_geometry(f"+{x_value}+{y_value}")
         label = tk.Label(
-            self.tip_window,
-            text=self.text,
+            tip_window,
+            text=text,
             justify=tk.LEFT,
             background="#ffffe0",
             relief=tk.SOLID,
             borderwidth=1,
-            font=("tahoma", "8", "normal"),
+            font=("tahoma", 8, "normal"),
         )
         label.pack(ipadx=1)
 
     def hidetip(self) -> None:
-        """Hide the tooltip"""
-        if self.tip_window:
-            self.tip_window.destroy()
+        """Remove tooltip window"""
 
+        tip_window = self.tip_window
         self.tip_window = None
+        if tip_window:
+            tip_window.destroy()
+
+
+def get_tool_tip(widget: tk.Widget) -> Optional[str]:
+    """Return the message of the widget if there is any."""
+    return getattr(widget, "tooltip_text", None)
+
+
+def set_tool_tip(widget: tk.Widget, text: str) -> None:
+    """Set the tooltip message of the widget"""
+    return setattr(widget, "tooltip_text", text)
+
+
+def add_tool_tip(widget: tk.Widget, text: str) -> None:
+    """Add a helpful or informative message to widget.
+    Can be visible only if mouse pointer is on the widget.
+
+    @param widget: The widget to show the tooltip.
+    @param text:   Tooltip text to display.
+    """
+
+    tool_tip = ToolTip(widget)
+    set_tool_tip(widget, text)
+
+    def enter(_: Any) -> None:
+        tip_msg = get_tool_tip(widget)
+        if tip_msg and tip_msg.strip():
+            tool_tip.showtip(tip_msg)
+
+    def leave(_: Any) -> None:
+        tool_tip.hidetip()
+
+    widget.bind("<Enter>", enter, add=True)
+    widget.bind("<Leave>", leave, add=True)
 
 
 def create_widget(widget_class: Type[_T], *args: Any, **kwargs: Any) -> _T:
@@ -274,7 +311,7 @@ def create_widget(widget_class: Type[_T], *args: Any, **kwargs: Any) -> _T:
 
     widget = widget_class(*args, **kwargs)
     if tooltip:
-        AddToolTip(widget, tooltip)
+        add_tool_tip(widget, tooltip)
 
     return widget
 
@@ -312,80 +349,59 @@ class EntryWithPlaceholder(tk.Entry):
     >>> root.mainloop()
     """
 
-    def __init__(self, *args: Any, placeholder: str = "", color: str = "grey", **kw: Any):
-        super().__init__(*args, **kw)
-
-        self._is_empty = True
+    def __init__(self, *args: Any, placeholder: str = "", color: str = "grey", **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
 
         self.placeholder = placeholder
         self.placeholder_color = color
-        self.default_fg_color = self["fg"]
+        self.default_fg_color = self["foreground"]
 
-        self.__bind("<FocusIn>", self.focus_in)
-        self.__bind("<FocusOut>", self.focus_out)
+        self.bind("<FocusIn>", self.focus_in)
+        self.bind("<FocusOut>", self.focus_out)
 
         self.put_placeholder()
 
-    def get(self) -> str:
-        """Return the text of the entry."""
-        if self._is_empty:
-            return ""
-        return super().get()
-
     def put_placeholder(self) -> None:
-        """Put the place holder"""
-        self._is_empty = True
-        self.insert(0, self.placeholder, placeholder=True)
-        self["fg"] = self.placeholder_color
+        """Put the placeholder"""
+        self.insert(0, self.placeholder)
+        self["foreground"] = self.placeholder_color
 
-    def focus_in(self, *_: Any) -> None:
-        """Clear placeholder and allow typing"""
-        self._is_empty = False
+    @overload
+    def focus_in(self) -> None:
+        ...
 
-        if self["fg"] == self.placeholder_color:
-            self.delete(0, tk.END)
-            self["fg"] = self.default_fg_color
+    @overload
+    def focus_in(self, _: "tk.Event[EntryWithPlaceholder]") -> None:
+        ...
 
-    def focus_out(self, *_: Any) -> None:
-        """Add placeholder if empty"""
+    def focus_in(self, _: "tk.Event[EntryWithPlaceholder] | None" = None) -> None:
+        """Remove the place holder when widget is focused in"""
+        if self["foreground"] == self.placeholder_color:
+            self["foreground"] = self.default_fg_color
+            self.delete("0", tk.END)
+
+    @overload
+    def focus_out(self) -> None:
+        ...
+
+    @overload
+    def focus_out(self, _: "tk.Event[EntryWithPlaceholder]") -> None:
+        ...
+
+    def focus_out(self, _: "tk.Event[EntryWithPlaceholder] | None" = None) -> None:
+        """Put the place holder when widget is focused out"""
         if not self.get():
             self.put_placeholder()
 
-    def insert(self, *args: Any, **kwargs: Any) -> None:
-        """Insert the text"""
-        placeholder = kwargs.pop("placeholder", False)
-        if not placeholder and self["fg"] == self.placeholder_color:
-            self._is_empty = False
-            self["fg"] = self.default_fg_color
-        super().insert(*args, **kwargs)
+    def get(self) -> str:
+        value = super().get()
+        if value == self.placeholder:
+            return ""
+        return value
 
-    def __bind(
-        self,
-        sequence: Optional[str] = None,
-        func: Optional[Callable[["tk.Event[tk.Misc]"], Any]] = None,
-        add: Optional[Union[bool, Literal["", "+"]]] = None,
-    ) -> str:
-        return super().bind(sequence, func, add)
-
-    def bind(  # type: ignore[override]
-        self,
-        sequence: Optional[str] = None,
-        func: Optional[Callable[["tk.Event[tk.Misc]"], Any]] = None,
-        add: Optional[Union[bool, Literal["", "+"]]] = None,
-    ) -> str:
-        """Bind to this widget at event SEQUENCE a call to function FUNC."""
-        # Don't allow to override "<FocusIn>" and "<FocusOut>"
-        if sequence in ("<FocusIn>", "<FocusOut>"):
-            return sequence
-        return self.__bind(sequence, func, add)
-
-    def unbind(self, sequence: str, funcid: Optional[str] = None) -> None:
-        """Unbind for this widget for event SEQUENCE  the
-        function identified with FUNC_ID."""
-        # Don't allow to delete "<FocusIn>" and "<FocusOut>"
-        if sequence in ("<FocusIn>", "<FocusOut>"):
-            return
-        super().unbind(sequence, funcid)
+    def insert(self, index: str | int, string: str) -> None:
+        self.focus_in()
+        return super().insert(index, string)
 
 
 class TargetType(enum.Enum):
@@ -581,31 +597,42 @@ class MultiColumnListbox:
         master: tk.Misc,
         headers: Sequence[str],
         sort: List[Callable[[Tuple[Any, str]], Any]] | List[bool] | bool | None = None,
+        title: Optional[str] = None,
     ) -> None:
         self.master = master
         self._headers = list(headers)
         self._columns: Dict[str, List[str]] = {}
 
-        self._setup_widgets(sort=sort)
+        self._setup_widgets(sort=sort, title=title)
 
-    def _setup_widgets(self, sort: List[Callable[[Tuple[Any, str]], Any]] | List[bool] | bool | None = None) -> None:
+    def _setup_widgets(
+        self, sort: List[Callable[[Tuple[Any, str]], Any]] | List[bool] | bool | None = None, title: Optional[str] = None
+    ) -> None:
         container = ttk.Frame(self.master)
         container.grid(sticky=tk.NSEW)
 
-        # create a treeview with dual scrollbar
-        self.tree = ttk.Treeview(container, columns=self._headers, show="headings", selectmode=tk.BROWSE)
-        vsb = ttk.Scrollbar(container, orient=tk.VERTICAL, command=self.tree.yview)
-        # hsb = ttk.Scrollbar(orient=tk.HORIZONTAL, command=self.tree.xview)
-
-        self.tree.grid(column=0, row=0, sticky=tk.NSEW, padx=5)
-        vsb.grid(column=1, row=0, sticky=tk.NS)
-
-        self.tree.configure(yscrollcommand=vsb.set)
-        # self.tree.configure(yscrollcommand=hsb.set)
-        # hsb.grid(column=0, row=1, sticky=tk.EW, in_=container)
+        if title:
+            tree_row = 1
+            container.grid_rowconfigure(0, weight=1)
+            container.grid_rowconfigure(1, weight=_MAX_WEIGHT)
+        else:
+            tree_row = 0
+            container.grid_rowconfigure(0, weight=_MAX_WEIGHT)
         container.grid_columnconfigure(0, weight=_MAX_WEIGHT)
         container.grid_columnconfigure(1, weight=1)
-        container.grid_rowconfigure(0, weight=1)
+
+        if title:
+            msg = ttk.Label(container, wraplength="4i", justify=tk.LEFT, anchor=tk.N, padding=(10, 2, 10, 6), text=title)
+            msg.grid(sticky=tk.NSEW)
+
+        # create a treeview with scrollbar
+        self.tree = ttk.Treeview(container, columns=self._headers, show="headings", selectmode=tk.BROWSE)
+        vsb = ttk.Scrollbar(container, orient=tk.VERTICAL, command=self.tree.yview)
+
+        self.tree.grid(column=0, row=tree_row, sticky=tk.NSEW, padx=5)
+        vsb.grid(column=1, row=tree_row, sticky=tk.NS)
+
+        self.tree.configure(yscrollcommand=vsb.set)
 
         for idx, col in enumerate(self._headers):
             # adjust the column's width to the header string
@@ -894,13 +921,7 @@ class ResizableLabel(tk.Label, _ResizableBase):
     """
 
     def __init__(
-        self,
-        master: Union[tk.Tk, tk.Widget],
-        *args: Any,
-        weight: float = 1.0,
-        resize: bool = True,
-        fix_text_len: int = 0,
-        **kwargs: Any,
+        self, master: Union[tk.Tk, tk.Widget], *args: Any, weight: float = 1.0, resize: bool = True, fix_text_len: int = 0, **kwargs: Any
     ):
         base_font = kwargs.pop("font", Font())
 
@@ -930,13 +951,7 @@ class ResizableLabelImage(ResizableLabel):
     def __init__(self, *args: Any, image_path: str, **kwargs: Any) -> None:
         pass
 
-    def __init__(
-        self,
-        *args: Any,
-        image: Optional[Image.Image] = None,
-        image_path: Optional[str] = None,
-        **kwargs: Any,
-    ) -> None:
+    def __init__(self, *args: Any, image: Optional[Image.Image] = None, image_path: Optional[str] = None, **kwargs: Any) -> None:
         if image is not None and image_path is not None:
             raise ValueError("you are allowed to pass only image or image_path")
 
@@ -1016,13 +1031,7 @@ class ResizableButton(tk.Button, _ResizableBase):
     """
 
     def __init__(
-        self,
-        master: Union[tk.Tk, tk.Widget],
-        *args: Any,
-        weight: float = 1.0,
-        resize: bool = True,
-        fix_text_len: int = 0,
-        **kwargs: Any,
+        self, master: Union[tk.Tk, tk.Widget], *args: Any, weight: float = 1.0, resize: bool = True, fix_text_len: int = 0, **kwargs: Any
     ):
         self._font: Font
         base_font = kwargs.pop("font", Font())
@@ -1039,60 +1048,80 @@ class ResizableButton(tk.Button, _ResizableBase):
 
 
 class FixedSizedOptionMenu(ttk.OptionMenu):
-    """A fix-sized option menu, calculates the width from options and placeholder
+    """A fix-sized option menu, calculates the width from options.
     Args:
         master:      Root of the widget.
-        variable:    Tkinter variable for dropdown menu.
-        *values:     Options for dropdown menu.
-        placeholder: Help-like option. Cannot be selected as a value.
+        values:      Options for dropdown menu.
+        default_idx: Select the default value
+        offset:      Add some offset.
         **kwargs:    Configurations for base class.
 
     >>> timeout = 1
     >>> # noinspection PyUnresolvedReferences
     >>> @with_root
     ... def fixed_sized_option_menu(root):
-    ...     variable = tk.StringVar()
     ...     options = ["option1", "option2", "option3 with a long name"]
-    ...     FixedSizedOptionMenu(
-    ...         root, variable, *options,
-    ...         placeholder="This is the placeholder"
-    ...     ).grid()
+    ...     fixed_sized_dropdown = FixedSizedOptionMenu(root, options)
+    ...     fixed_sized_dropdown.grid()
+    ...     print(fixed_sized_dropdown.get())
     >>> fixed_sized_option_menu(timeout=timeout * 1000)
+    option1
     """
 
-    def __init__(
-        self,
-        master: Union[tk.Tk, tk.Widget],
-        variable: tk.StringVar,
-        *values: str,
-        placeholder: Optional[str] = None,
-        **kwargs: Any,
-    ):
-        self._placeholder = placeholder
-        if placeholder is None:
-            placeholder = values[0]
-        super().__init__(master, variable, placeholder, *values, **kwargs)
-        self._variable = variable
-        self.configure(**self._get_option_menu_style(placeholder, values))
+    def __init__(self, master: tk.Misc, options: Iterable[str], default_idx: int = 0, offset: int = 2, **kwargs: Any) -> None:
+        self.variable = tk.StringVar(master)
+        self.values = list(options)
 
-    def get(self) -> Union[str, None]:
-        """Return the value of drop down menu. None will be returned
-        if no option is selected and placeholder exist.
-        """
-        value = self._variable.get()
-        if value == self._placeholder:
-            return None
-        return value
+        super().__init__(master, self.variable, self.values[default_idx], *self.values, **kwargs)
+        self.configure(width=len(max(self.values, key=len)) + offset)
 
-    @staticmethod
-    def _get_option_menu_style(placeholder: str, option_list: Iterable[str]) -> Dict[str, Any]:
-        style = {}
-        width = max((len(i) for i in option_list))
-        width = max(len(placeholder), width)
+    def get(self) -> str:
+        """Get the current value"""
 
-        style["width"] = int(width) + 2  # add some offset
+        val = self.variable.get()
+        for item in self.values:
+            if item == val:
+                return item
+        raise ValueError("Value cannot be found")
 
-        return style
+
+class FixedSizedOptionMenuEnum(FixedSizedOptionMenu, Generic[_K]):
+    """A fix-sized option menu same as FixedSizedOptionMenu but takes Enum as an options.
+    Args:
+        master:      Root of the widget.
+        values:      Options for dropdown menu.
+        default_idx: Select the default value
+        offset:      Add some offset.
+        **kwargs:    Configurations for base class.
+
+    >>> timeout = 1
+    >>> # noinspection PyUnresolvedReferences
+    >>> @with_root
+    ... def fixed_sized_option_menu_enum(root):
+    ...     class OptionEnum(enum.Enum):
+    ...         OPTION1 = enum.auto()
+    ...         OPTION2 = enum.auto()
+    ...         LONG_NAMED_OPTION = enum.auto()
+    ...     fixed_sized_dropdown = FixedSizedOptionMenuEnum(root, OptionEnum, default_idx=2, offset=4)
+    ...     fixed_sized_dropdown.grid()
+    ...     print(fixed_sized_dropdown.get_enum())
+    >>> fixed_sized_option_menu_enum(timeout=timeout * 1000)
+    OptionEnum.LONG_NAMED_OPTION
+    """
+
+    def __init__(self, master: tk.Misc, options: Type[_K], default_idx: int = 0, offset: int = 2, **kwargs: Any) -> None:
+        self._enum_options = options
+        super().__init__(master, [option.name for option in options], default_idx, offset, **kwargs)
+
+    def get_enum(self) -> _K:
+        """Get the enum representation of current value"""
+
+        val = self.variable.get()
+        for enum_option in self._enum_options:
+            if enum_option.name == val:
+                return enum_option
+
+        raise ValueError("Value cannot be found as enumeration")
 
 
 # pylint: disable=too-many-arguments
